@@ -28,7 +28,7 @@ class Session:
             return False
 
     def post(self, url, data=""):
-        if not session.is_logged_in:
+        if not self.is_logged_in:
             self.login()
         req = requests.post(
             url,
@@ -43,7 +43,8 @@ class Session:
 
 class Pool:
     @classmethod
-    def all(cls, session):
+    def all(cls, username, password):
+        session = Session(username, password)
         success, data = session.post(POOL_LIST_URL)
         if success:
             return True, list(map(lambda x: Pool(session, x['id']), data["items"]))
@@ -86,10 +87,9 @@ class Pool:
             UPDATE_RELAY_URL,
             data=f"&data={json.dumps({'id': self.id, 'sign': relay['sign'], 'value': '1' if active else '0'})}"
         )
-
+#
 # if __name__ == '__main__':
-#     session = Session("user", "pass")
-#     success, [pool] = Pool.all(session)
+#     success, [pool] = Pool.all("user", "pass")
 #     if not success:
 #         exit(1)
 #     pool.sync_info()
