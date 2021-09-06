@@ -23,12 +23,13 @@ class Account:
                 resp.raise_for_status()
                 data = await resp.json()
                 self._token = data["token"]
-                return self._token;
+                return self._token
 
 class Pool:
     @classmethod
-    async def all(cls, username, password):
-        account = Account(username, password)
+    async def all(cls, username="", password="", account = None):
+        if not account:
+            account = Account(username, password)
         token = await account.token()
         async with ClientSession() as session:
             async with session.post(
