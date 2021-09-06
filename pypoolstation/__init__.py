@@ -8,10 +8,10 @@ POOL_INFO_URL = DOMAIN + '/devices/'
 UPDATE_RELAY_URL = DOMAIN + '/devices/saveSign'
 
 class Account:
-    def __init__(self, username, password) -> None:
+    def __init__(self, username="", password="", token=None) -> None:
         self._username = username
         self._password = password
-        self._token = None;
+        self._token = token
 
     async def token(self):
         if self._token: return self._token
@@ -29,7 +29,7 @@ class Pool:
     @classmethod
     async def all(cls, username="", password="", account = None):
         if not account:
-            account = Account(username, password)
+            account = Account(username=username, password=password)
         token = await account.token()
         async with ClientSession() as session:
             async with session.post(
