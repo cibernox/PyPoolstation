@@ -1,6 +1,5 @@
 import json
 from aiohttp import ClientSession
-import asyncio
 
 DOMAIN = 'https://api.idegis.net'
 LOGIN_URL = DOMAIN + '/session/login'
