@@ -1,5 +1,6 @@
 import json
-import requests
+from aiohttp import ClientSession
+import asyncio
 
 DOMAIN = 'https://api.idegis.net'
 LOGIN_URL = DOMAIN + '/session/login'
@@ -7,52 +8,41 @@ POOL_LIST_URL = DOMAIN + '/devices/10/0'
 POOL_INFO_URL = DOMAIN + '/devices/'
 UPDATE_RELAY_URL = DOMAIN + '/devices/saveSign'
 
-class Session:
+class Account:
     def __init__(self, username, password) -> None:
-        self.username = username
-        self.password = password
-        self.token = None;
-        self.login()
+        self._username = username
+        self._password = password
+        self._token = None;
 
-    def is_logged_in(self):
-        return self.token != None
+    async def token(self):
+        if self._token: return self._token
+        return await self.login()
 
-    def login(self):
-        req = requests.post(LOGIN_URL, json={"username": self.username, "password": self.password})
-        if req.status_code == 200:
-            data = req.json()
-            self.token = data["token"]
-            return True
-        else:
-            self.token = None;
-            return False
-
-    def post(self, url, data=""):
-        if not self.is_logged_in:
-            self.login()
-        req = requests.post(
-            url,
-            data=f"Authorization=Bearer {self.token}" + (data or ""),
-            headers={"content-type": "application/x-www-form-urlencoded"}
-        )
-        if req.status_code == 200:
-            return True, req.json()
-        else:
-            print(f'request to {url} failed')
-            return False, None
+    async def login(self):
+        async with ClientSession() as session:
+            async with session.post(LOGIN_URL, json={"username": self._username, "password": self._password}) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                self._token = data["token"]
+                return self._token;
 
 class Pool:
     @classmethod
-    def all(cls, username, password):
-        session = Session(username, password)
-        success, data = session.post(POOL_LIST_URL)
-        if success:
-            return True, list(map(lambda x: Pool(session, x['id']), data["items"]))
-        else:
-            return False, []
+    async def all(cls, username, password):
+        account = Account(username, password)
+        token = await account.token()
+        async with ClientSession() as session:
+            async with session.post(
+                    POOL_LIST_URL,
+                    data=f"Authorization=Bearer {token}",
+                    headers={"accept": "application/json", "content-type": "application/x-www-form-urlencoded"}
+            ) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                return list(map(lambda x: Pool(token, x['id']), data["items"]))
 
-    def __init__(self, session, id):
-        self.session = session
+    def __init__(self, token, id):
+        self._token = token
         self.id = id
         self.alias = None;
         self.temperature = None;
@@ -63,36 +53,36 @@ class Pool:
         self.target_percentage_electrolysis = None;
         self.relays = []
 
-    def sync_info(self):
-        success, info = self.session.post(POOL_INFO_URL + str(self.id))
-        if success:
-            self.alias = info["alias"]
-            self.temperature = float(info["vars"]["ta"][0:-1])  # in °C
-            self.salt_concentration = float(info["vars"]["cn"][0:-1])  # in gr/l
-            self.current_ph = float(info["vars"]["mp"])
-            self.target_ph = float(info["vars"]["sp"])
-            self.percentage_electrolysis = int(info["vars"]["pa"])
-            self.target_percentage_electrolysis = int(info["vars"]["sn"])
-            self.relays = list(
-                map(
-                    lambda r: {'id': r["id"], 'name': r["nombre"], 'sign': r["sign"], 'active': info["vars"][r["sign"]] == '1'},
-                    info["relays"]
-                )
-            )
-            return True
-
-    def set_relay(self, relay_id, active):
-        relay = next((r for r in self.relays if r['id'] == relay_id), None)
-        self.session.post(
-            UPDATE_RELAY_URL,
-            data=f"&data={json.dumps({'id': self.id, 'sign': relay['sign'], 'value': '1' if active else '0'})}"
+    async def post(self, url, data=""):
+        session = ClientSession()
+        resp = await session.post(
+            url,
+            data=f"Authorization=Bearer {self._token}" + data,
+            headers={"accept": "application/json", "content-type": "application/x-www-form-urlencoded"}
         )
-#
-# if __name__ == '__main__':
-#     success, [pool] = Pool.all("user", "pass")
-#     if not success:
-#         exit(1)
-#     pool.sync_info()
-#     print(pool.id)
-#     print(pool.relays)
-#     pool.set_relay(41598, False)
+        resp.raise_for_status()
+        info = await resp.json()
+        await session.close()
+        return info;
+
+    async def sync_info(self):
+        info = await self.post(POOL_INFO_URL + str(self.id))
+        self.alias = info["alias"]
+        self.temperature = float(info["vars"]["ta"][0:-1])  # in °C
+        self.salt_concentration = float(info["vars"]["cn"][0:-1])  # in gr/l
+        self.current_ph = float(info["vars"]["mp"])
+        self.target_ph = float(info["vars"]["sp"])
+        self.percentage_electrolysis = int(info["vars"]["pa"])
+        self.target_percentage_electrolysis = int(info["vars"]["sn"])
+        self.relays = list(
+            map(
+                lambda r: {'id': r["id"], 'name': r["nombre"], 'sign': r["sign"],
+                           'active': info["vars"][r["sign"]] == '1'},
+                info["relays"]
+            )
+        )
+
+    async def set_relay(self, relay_id, active):
+        relay = next((r for r in self.relays if r['id'] == relay_id), None)
+        await self.post(UPDATE_RELAY_URL, data=f"&data={json.dumps({'id': self.id, 'sign': relay['sign'], 'value': '1' if active else '0'})}")
+
