@@ -88,8 +88,10 @@ class Pool:
         relay.active = active
         try:
             await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': relay['sign'], 'value': '1' if active else '0'})}")
+            return active
         except ClientError as err:
-            relay.active = previous_value                
+            relay.active = previous_value 
+            return previous_value               
 
     async def set_target_ph(self, value): 
         self.target_ph = value
@@ -98,8 +100,10 @@ class Pool:
         api_value = str(value)
         try:
             await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': 'sp', 'value': api_value})}")
+            return value
         except ClientError as err:
-            self.target_ph = previous_value        
+            self.target_ph = previous_value  
+            return previous_value     
 
     async def set_target_percentage_electrolysis(self, value): 
         previous_value = self.target_percentage_electrolysis     
@@ -107,5 +111,7 @@ class Pool:
         api_value = str(value).zfill(3)
         try:
             await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': 'sn', 'value': api_value})}")
+            return value
         except ClientError as err:
             self.target_percentage_electrolysis = previous_value
+            return previous_value
