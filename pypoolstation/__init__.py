@@ -1,11 +1,11 @@
 import json
-from aiohttp import ClientSession
+from aiohttp import ClientSession, ClientError
 
 DOMAIN = 'https://api.idegis.net'
 LOGIN_URL = DOMAIN + '/session/login'
 POOL_LIST_URL = DOMAIN + '/devices/10/0'
 POOL_INFO_URL = DOMAIN + '/devices/'
-UPDATE_RELAY_URL = DOMAIN + '/devices/saveSign'
+UPDATE_URL = DOMAIN + '/devices/saveSign'
 
 class Account:
     def __init__(self, username="", password="", token=None) -> None:
@@ -44,13 +44,13 @@ class Pool:
     def __init__(self, token, id):
         self._token = token
         self.id = id
-        self.alias = None;
-        self.temperature = None;
-        self.salt_concentration = None;
-        self.current_ph = None;
-        self.target_ph = None;
-        self.percentage_electrolysis = None;
-        self.target_percentage_electrolysis = None;
+        self.alias = None
+        self.temperature = None
+        self.salt_concentration = None
+        self.current_ph = None
+        self.target_ph = None
+        self.percentage_electrolysis = None
+        self.target_percentage_electrolysis = None
         self.relays = []
 
     async def post(self, url, data=""):
@@ -63,7 +63,7 @@ class Pool:
         resp.raise_for_status()
         info = await resp.json()
         await session.close()
-        return info;
+        return info
 
     async def sync_info(self):
         info = await self.post(POOL_INFO_URL + str(self.id))
@@ -84,5 +84,28 @@ class Pool:
 
     async def set_relay(self, relay_id, active):
         relay = next((r for r in self.relays if r['id'] == relay_id), None)
-        await self.post(UPDATE_RELAY_URL, data=f"&data={json.dumps({'id': self.id, 'sign': relay['sign'], 'value': '1' if active else '0'})}")
+        previous_value = relay.active
+        relay.active = active
+        try:
+            await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': relay['sign'], 'value': '1' if active else '0'})}")
+        except ClientError as err:
+            relay.active = previous_value                
 
+    async def set_target_ph(self, value): 
+        self.target_ph = value
+        previous_value = self.target_ph     
+        self.target_ph = value
+        api_value = str(value)
+        try:
+            await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': 'sp', 'value': api_value})}")
+        except ClientError as err:
+            self.target_ph = previous_value        
+
+    async def set_target_percentage_electrolysis(self, value): 
+        previous_value = self.target_percentage_electrolysis     
+        self.target_percentage_electrolysis = value
+        api_value = str(value).zfill(3)
+        try:
+            await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': 'sn', 'value': api_value})}")
+        except ClientError as err:
+            self.target_percentage_electrolysis = previous_value
