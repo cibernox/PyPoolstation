@@ -88,16 +88,16 @@ class Pool:
                 relay.active = info["vars"][obj["sign"]] == '1'
 
 
-    async def set_relay(self, relay_id, active):
-        relay = next((r for r in self.relays if r.id == relay_id), None)
-        previous_value = relay.active
-        relay.active = active
-        try:
-            await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': relay.sign, 'value': '1' if active else '0'})}")
-            return active
-        except ClientError as err:
-            relay.active = previous_value 
-            return previous_value               
+    # async def set_relay(self, relay_id, active):
+    #     relay = next((r for r in self.relays if r.id == relay_id), None)
+    #     previous_value = relay.active
+    #     relay.active = active
+    #     try:
+    #         await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': relay.sign, 'value': '1' if active else '0'})}")
+    #         return active
+    #     except ClientError as err:
+    #         relay.active = previous_value 
+    #         return previous_value               
 
     async def set_target_ph(self, value): 
         self.target_ph = value
@@ -129,3 +129,13 @@ class Relay:
         self.sign = sign
         self.name = name
         self.active = active
+
+    async def set_active(self, active):
+        previous_value = self.active
+        self.active = active
+        try:
+            await self.pool.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.pool.id, 'sign': self.sign, 'value': '1' if active else '0'})}")
+            return active
+        except ClientError as err:
+            self.active = previous_value 
+            return previous_value   
