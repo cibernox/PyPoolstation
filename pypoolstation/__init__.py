@@ -77,20 +77,20 @@ class Pool:
         if len(self.relays) == 0:
             self.relays = list(
                 map(
-                    lambda r: Relay(id=r["id"], pool=self, name=r["nombre"], sign=r["sign"], active=info["vars"][r["sign"]] == '1'),
+                    (lambda r: Relay(id=r["id"], pool=self, name=r["nombre"], sign=r["sign"], active=info["vars"][r["sign"]] == '1')),
                     info["relays"]
                 )
             )
         else:
             for obj in info["relays"]:
                 relay = next((r for r in self.relays if r.id == obj["id"]), None)
-                relay.name = obj["name"]
-                relay.active = obj["active"]
+                relay.name = obj["nombre"]
+                relay.active = info["vars"][obj["sign"]] == '1'
 
 
     async def set_relay(self, relay_id, active):
         relay = next((r for r in self.relays if r.id == relay_id), None)
-        previous_value = relay.active
+        previous_value = relay.activex
         relay.active = active
         try:
             await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': relay.sign, 'value': '1' if active else '0'})}")
