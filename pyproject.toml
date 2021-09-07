@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "PyPoolstation"
-version = "0.1.4"
+version = "0.1.6"
 description = "Python library to interact with the API of the Poolstation (https://poolstation.net) domotic platform for pool equipment"
 authors = ["cibernox <miguel.camba@gmail.com>"]
 license = "MIT"

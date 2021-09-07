@@ -74,23 +74,29 @@ class Pool:
         self.target_ph = float(info["vars"]["sp"])
         self.percentage_electrolysis = int(info["vars"]["pa"])
         self.target_percentage_electrolysis = int(info["vars"]["sn"])
-        self.relays = list(
-            map(
-                lambda r: {'id': r["id"], 'name': r["nombre"], 'sign': r["sign"],
-                           'active': info["vars"][r["sign"]] == '1'},
-                info["relays"]
+        if len(self.relays) == 0:
+            self.relays = list(
+                map(
+                    lambda r: Relay(id=r["id"], pool=self, name=r["nombre"], sign=r["sign"], active=info["vars"][r["sign"]] == '1'),
+                    info["relays"]
+                )
             )
-        )
+        else:
+            for obj in info["relays"]:
+                relay = next((r for r in self.relays if r.id == obj["id"]), None)
+                relay.name = obj["name"]
+                relay.active = obj["active"]
+
 
     async def set_relay(self, relay_id, active):
-        relay = next((r for r in self.relays if r['id'] == relay_id), None)
-        previous_value = relay['active']
-        relay['active'] = active
+        relay = next((r for r in self.relays if r.id == relay_id), None)
+        previous_value = relay.active
+        relay.active = active
         try:
-            await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': relay['sign'], 'value': '1' if active else '0'})}")
+            await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': relay.sign, 'value': '1' if active else '0'})}")
             return active
         except ClientError as err:
-            relay['active'] = previous_value 
+            relay.active = previous_value 
             return previous_value               
 
     async def set_target_ph(self, value): 
@@ -115,3 +121,11 @@ class Pool:
         except ClientError as err:
             self.target_percentage_electrolysis = previous_value
             return previous_value
+
+class Relay:
+    def __init__(self, id=None, pool=None, name="", sign="", active=False):
+        self.id = id
+        self.pool = pool
+        self.sign = sign
+        self.name = name
+        self.active = active
