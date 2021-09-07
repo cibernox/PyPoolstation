@@ -90,7 +90,7 @@ class Pool:
 
     async def set_relay(self, relay_id, active):
         relay = next((r for r in self.relays if r.id == relay_id), None)
-        previous_value = relay.activex
+        previous_value = relay.active
         relay.active = active
         try:
             await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': relay.sign, 'value': '1' if active else '0'})}")
