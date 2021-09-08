@@ -1,6 +1,7 @@
 import json
 from aiohttp import ClientSession, ClientError
 
+
 DOMAIN = 'https://api.idegis.net'
 LOGIN_URL = DOMAIN + '/session/login'
 POOL_LIST_URL = DOMAIN + '/devices/10/0'
@@ -20,6 +21,8 @@ class Account:
     async def login(self):
         async with ClientSession() as session:
             async with session.post(LOGIN_URL, json={"username": self._username, "password": self._password}) as resp:
+                if resp.status == 401:
+                    raise AuthenticationException('Authentication failed')
                 resp.raise_for_status()
                 data = await resp.json()
                 self._token = data["token"]
@@ -87,18 +90,6 @@ class Pool:
                 relay.name = obj["nombre"]
                 relay.active = info["vars"][obj["sign"]] == '1'
 
-
-    # async def set_relay(self, relay_id, active):
-    #     relay = next((r for r in self.relays if r.id == relay_id), None)
-    #     previous_value = relay.active
-    #     relay.active = active
-    #     try:
-    #         await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': relay.sign, 'value': '1' if active else '0'})}")
-    #         return active
-    #     except ClientError as err:
-    #         relay.active = previous_value 
-    #         return previous_value               
-
     async def set_target_ph(self, value): 
         self.target_ph = value
         previous_value = self.target_ph     
@@ -139,3 +130,6 @@ class Relay:
         except ClientError as err:
             self.active = previous_value 
             return previous_value   
+
+class AuthenticationException(Exception):
+    pass
