@@ -1,6 +1,5 @@
 import json
-from aiohttp import ClientSession, ClientError
-
+from aiohttp import ClientError
 
 DOMAIN = 'https://api.idegis.net'
 LOGIN_URL = DOMAIN + '/session/login'
@@ -9,7 +8,8 @@ POOL_INFO_URL = DOMAIN + '/devices/'
 UPDATE_URL = DOMAIN + '/devices/saveSign'
 
 class Account:
-    def __init__(self, username="", password="", token=None) -> None:
+    def __init__(self, session, username="", password="", token=None) -> None:
+        self._session = session
         self._username = username
         self._password = password
         self._token = token
@@ -19,32 +19,31 @@ class Account:
         return await self.login()
 
     async def login(self):
-        async with ClientSession() as session:
-            async with session.post(LOGIN_URL, json={"username": self._username, "password": self._password}) as resp:
-                if resp.status == 401:
-                    raise AuthenticationException('Authentication failed')
-                resp.raise_for_status()
-                data = await resp.json()
-                self._token = data["token"]
-                return self._token
+        async with self._session.post(LOGIN_URL, json={"username": self._username, "password": self._password}) as resp:
+            if resp.status == 401:
+                raise AuthenticationException('Authentication failed')
+            resp.raise_for_status()
+            data = await resp.json()
+            self._token = data["token"]
+            return self._token
 
 class Pool:
     @classmethod
-    async def all(cls, username="", password="", account = None):
+    async def all(cls, session, username="", password="", account = None):
         if not account:
-            account = Account(username=username, password=password)
+            account = Account(session, username=username, password=password)
         token = await account.token()
-        async with ClientSession() as session:
-            async with session.post(
-                    POOL_LIST_URL,
-                    data=f"Authorization=Bearer {token}",
-                    headers={"accept": "application/json", "content-type": "application/x-www-form-urlencoded"}
-            ) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                return list(map(lambda x: Pool(token, x['id']), data["items"]))
+        async with session.post(
+                POOL_LIST_URL,
+                data=f"Authorization=Bearer {token}",
+                headers={"accept": "application/json", "content-type": "application/x-www-form-urlencoded"}
+        ) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+            return list(map(lambda x: Pool(session, token, x['id']), data["items"]))
 
-    def __init__(self, token, id):
+    def __init__(self, session, token, id):
+        self._session = session
         self._token = token
         self.id = id
         self.alias = None
@@ -57,16 +56,13 @@ class Pool:
         self.relays = []
 
     async def post(self, url, data=""):
-        session = ClientSession()
-        resp = await session.post(
+        resp = await self._session.post(
             url,
             data=f"Authorization=Bearer {self._token}" + data,
             headers={"accept": "application/json", "content-type": "application/x-www-form-urlencoded"}
         )
         resp.raise_for_status()
-        info = await resp.json()
-        await session.close()
-        return info
+        return await resp.json()
 
     async def sync_info(self):
         info = await self.post(POOL_INFO_URL + str(self.id))
