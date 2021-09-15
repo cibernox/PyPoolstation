@@ -29,7 +29,7 @@ class Account:
 
 class Pool:
     @classmethod
-    async def all(cls, session, username="", password="", account = None):
+    async def get_all_pools(cls, session, username="", password="", account = None):
         if not account:
             account = Account(session, username=username, password=password)
         token = await account.token()
