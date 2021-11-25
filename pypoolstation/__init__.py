@@ -1,5 +1,5 @@
 import json
-from aiohttp import ClientError
+from aiohttp import ClientError, ClientResponseError
 
 DOMAIN = 'https://api.idegis.net'
 LOGIN_URL = DOMAIN + '/session/login'
@@ -33,14 +33,17 @@ class Pool:
         if not account:
             account = Account(session, username=username, password=password)
         token = await account.token()
-        async with session.post(
-                POOL_LIST_URL,
-                data=f"Authorization=Bearer {token}",
-                headers={"accept": "application/json", "content-type": "application/x-www-form-urlencoded"}
-        ) as resp:
-            resp.raise_for_status()
-            data = await resp.json()
-            return list(map(lambda x: Pool(session, token, x['id']), data["items"]))
+        try:
+            async with session.post(
+                    POOL_LIST_URL,
+                    data=f"Authorization=Bearer {token}",
+                    headers={"accept": "application/json", "content-type": "application/x-www-form-urlencoded"}
+            ) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                return list(map(lambda x: Pool(session, token, x['id']), data["items"]))
+        except ClientResponseError:
+            raise AuthenticationException("Request failed. Maybe token has expired.")
 
     def __init__(self, session, token, id):
         self._session = session
@@ -56,12 +59,17 @@ class Pool:
         self.relays = []
 
     async def post(self, url, data=""):
-        resp = await self._session.post(
-            url,
-            data=f"Authorization=Bearer {self._token}" + data,
-            headers={"accept": "application/json", "content-type": "application/x-www-form-urlencoded"}
-        )
-        resp.raise_for_status()
+        try:
+            resp = await self._session.post(
+                url,
+                data=f"Authorization=Bearer {self._token}" + data,
+                headers={"accept": "application/json", "content-type": "application/x-www-form-urlencoded"}
+            )
+            resp.raise_for_status()
+        except ClientResponseError as err:
+            # Unfortunately, the API is aweful and making a request with an expired token seems to trigger a generic 500 error.
+            # For all I could find, there's not way of
+            raise AuthenticationException("Request failed. Maybe token has expired.")
         return await resp.json()
 
     async def sync_info(self):
