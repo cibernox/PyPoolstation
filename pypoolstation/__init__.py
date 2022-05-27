@@ -1,5 +1,6 @@
 import json
 from aiohttp import ClientError, ClientResponseError
+import logging
 
 DOMAIN = 'https://api.idegis.net'
 LOGIN_URL = DOMAIN + '/session/login'
@@ -8,24 +9,29 @@ POOL_INFO_URL = DOMAIN + '/devices/'
 UPDATE_URL = DOMAIN + '/devices/saveSign'
 
 class Account:
-    def __init__(self, session, username="", password="", token=None) -> None:
+    def __init__(self, session, username="", password="", token=None, logger=None) -> None:
         self._session = session
         self._username = username
         self._password = password
         self._token = token
+        self.logger = logger or logging;
 
     async def token(self):
         if self._token: return self._token
         return await self.login()
 
     async def login(self):
+        self.logger.debug("Attempting log in")
+        self.logger.info("Attempting log in (info)")
         async with self._session.post(LOGIN_URL, json={"username": self._username, "password": self._password}) as resp:
             if resp.status == 401:
                 raise AuthenticationException('Authentication failed')
             resp.raise_for_status()
             data = await resp.json()
+            self.logger.debug("Log in successful")
             self._token = data["token"]
             return self._token
+
 
 class Pool:
     @classmethod
@@ -33,6 +39,7 @@ class Pool:
         if not account:
             account = Account(session, username=username, password=password)
         token = await account.token()
+        account.logger.debug("Fetching list of pools")
         try:
             async with session.post(
                     POOL_LIST_URL,
@@ -41,11 +48,12 @@ class Pool:
             ) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
-                return list(map(lambda x: Pool(session, token, x['id']), data["items"]))
+                account.logger.debug(f"Pools retrieved successfully. Number of pools: {len(data['items'])}")
+                return list(map(lambda x: Pool(session, token, x['id'], account.logger), data["items"]))
         except ClientResponseError:
             raise AuthenticationException("Request failed. Maybe token has expired.")
 
-    def __init__(self, session, token, id):
+    def __init__(self, session, token, id, logger):
         self._session = session
         self._token = token
         self.id = id
@@ -57,6 +65,7 @@ class Pool:
         self.percentage_electrolysis = None
         self.target_percentage_electrolysis = None
         self.relays = []
+        self._logger = logger
 
     async def post(self, url, data=""):
         try:
@@ -73,6 +82,7 @@ class Pool:
         return await resp.json()
 
     async def sync_info(self):
+        self.logger.debug(f"Sync'ing pool info for pool {self.id}")
         info = await self.post(POOL_INFO_URL + str(self.id))
         self.alias = info["alias"]
         self.temperature = float(info["vars"]["ta"][0:-1])  # in °C
