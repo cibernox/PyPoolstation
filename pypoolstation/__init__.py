@@ -9,12 +9,12 @@ POOL_INFO_URL = DOMAIN + '/devices/'
 UPDATE_URL = DOMAIN + '/devices/saveSign'
 
 class Account:
-    def __init__(self, session, username="", password="", token=None, logger=None) -> None:
+    def __init__(self, session, username="", password="", token=None, logger=logging) -> None:
         self._session = session
         self._username = username
         self._password = password
         self._token = token
-        self.logger = logger or logging;
+        self.logger = logger;
 
     async def token(self):
         if self._token: return self._token
