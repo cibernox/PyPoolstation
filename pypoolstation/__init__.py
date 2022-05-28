@@ -65,7 +65,7 @@ class Pool:
         self.percentage_electrolysis = None
         self.target_percentage_electrolysis = None
         self.relays = []
-        self._logger = logger
+        self.logger = logger
 
     async def post(self, url, data=""):
         try:
