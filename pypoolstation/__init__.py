@@ -61,6 +61,10 @@ class Pool:
         self.salt_concentration = None
         self.current_ph = None
         self.target_ph = None
+        self.current_orp = None
+        self.target_orp = None
+        self.current_clppm = None
+        self.target_clppm = None
         self.percentage_electrolysis = None
         self.target_percentage_electrolysis = None
         self.relays = []
@@ -88,6 +92,10 @@ class Pool:
         self.salt_concentration = float(info["vars"]["cn"][0:-1])  # in gr/l
         self.current_ph = float(info["vars"]["mp"])
         self.target_ph = float(info["vars"]["sp"])
+        self.current_orp = float(info["vars"]["mo"])
+        self.target_orp = float(info["vars"]["so"])
+        self.current_clppm = float(info["vars"]["mh"])
+        self.target_clppm = float(info["vars"]["sh"])
         self.percentage_electrolysis = int(info["vars"]["pa"])
         self.target_percentage_electrolysis = int(info["vars"]["sn"])
         if len(self.relays) == 0:
