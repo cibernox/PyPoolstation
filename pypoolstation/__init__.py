@@ -2,11 +2,26 @@ import json
 from aiohttp import ClientError, ClientResponseError
 import logging
 
+from backoff import constant
+
 DOMAIN = 'https://api.idegis.net'
 LOGIN_URL = DOMAIN + '/session/login'
 POOL_LIST_URL = DOMAIN + '/devices/10/0'
 POOL_INFO_URL = DOMAIN + '/devices/'
 UPDATE_URL = DOMAIN + '/devices/saveSign'
+
+API_SIGNS = {
+    "temperature": "ta",
+    "salt_concentration": "cn",
+    "current_ph": "mp",
+    "target_ph": "sp",
+    "current_orp": "mo",
+    "target_orp": "so",
+    "current_clppm": "mh",
+    "target_clppm": "sh",
+    "percentage_electrolysis": "pa",
+    "target_percentage_electrolysis": "sn"
+}
 
 class Account:
     def __init__(self, session, username="", password="", token=None, logger=logging) -> None:
@@ -85,19 +100,19 @@ class Pool:
         return await resp.json()
 
     async def sync_info(self):
-        self.logger.debug(f"Updagint pool info for pool with id {self.id}")
+        self.logger.debug(f"Updating pool info for pool with id {self.id}")
         info = await self.post(POOL_INFO_URL + str(self.id))
         self.alias = info["alias"]
-        self.temperature = float(info["vars"]["ta"][0:-1])  # in °C
-        self.salt_concentration = float(info["vars"]["cn"][0:-1])  # in gr/l
-        self.current_ph = float(info["vars"]["mp"])
-        self.target_ph = float(info["vars"]["sp"])
-        self.current_orp = float(info["vars"]["mo"])
-        self.target_orp = float(info["vars"]["so"])
-        self.current_clppm = float(info["vars"]["mh"])
-        self.target_clppm = float(info["vars"]["sh"])
-        self.percentage_electrolysis = int(info["vars"]["pa"])
-        self.target_percentage_electrolysis = int(info["vars"]["sn"])
+        self.temperature = float(info["vars"][API_SIGNS["temperature"]][0:-1])  # in °C
+        self.salt_concentration = float(info["vars"][API_SIGNS["salt_concentration"]][0:-1])  # in gr/l
+        self.current_ph = float(info["vars"][API_SIGNS["current_ph"]])
+        self.target_ph = float(info["vars"][API_SIGNS["target_ph"]])
+        self.current_orp = float(info["vars"][API_SIGNS["current_orp"]])
+        self.target_orp = float(info["vars"][API_SIGNS["target_orp"]])
+        self.current_clppm = float(info["vars"][API_SIGNS["current_clppm"]])
+        self.target_clppm = float(info["vars"][API_SIGNS["target_clppm"]])
+        self.percentage_electrolysis = int(info["vars"][API_SIGNS["percentage_electrolysis"]])
+        self.target_percentage_electrolysis = int(info["vars"][API_SIGNS["target_percentage_electrolysis"]])
         if len(self.relays) == 0:
             self.relays = list(
                 map(
@@ -111,28 +126,28 @@ class Pool:
                 relay.name = obj["nombre"]
                 relay.active = info["vars"][obj["sign"]] == '1'
 
-    async def set_target_ph(self, value): 
-        self.target_ph = value
-        previous_value = self.target_ph     
-        self.target_ph = value
+    async def set_target_attribute(self, attr, value): 
+        previous_value = getattr(self, attr)
+        setattr(self, attr, value);
         api_value = str(value)
         try:
-            await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': 'sp', 'value': api_value})}")
+            await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': API_SIGNS[attr], 'value': api_value})}")
             return value
         except ClientError as err:
-            self.target_ph = previous_value  
+            setattr(self, attr, previous_value);
             return previous_value     
 
+    async def set_target_ph(self, value): 
+        return self.set_target_attribute(self, "target_ph", value)
+
+    async def set_target_orp(self, value): 
+        return self.set_target_attribute(self, "target_orp", value)
+
+    async def set_target_clppm(self, value): 
+        return self.set_target_attribute(self, "target_clppm", value)
+
     async def set_target_percentage_electrolysis(self, value): 
-        previous_value = self.target_percentage_electrolysis     
-        self.target_percentage_electrolysis = value
-        api_value = str(value).zfill(3)
-        try:
-            await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': 'sn', 'value': api_value})}")
-            return value
-        except ClientError as err:
-            self.target_percentage_electrolysis = previous_value
-            return previous_value
+        return self.set_target_attribute(self, "target_percentage_electrolysis", value)
 
 class Relay:
     def __init__(self, id=None, pool=None, name="", sign="", active=False):
