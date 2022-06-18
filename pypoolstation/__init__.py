@@ -107,10 +107,16 @@ class Pool:
         self.salt_concentration = float(info["vars"][API_SIGNS["salt_concentration"]][0:-1])  # in gr/l
         self.current_ph = float(info["vars"][API_SIGNS["current_ph"]])
         self.target_ph = float(info["vars"][API_SIGNS["target_ph"]])
-        self.current_orp = float(info["vars"][API_SIGNS["current_orp"]])
-        self.target_orp = float(info["vars"][API_SIGNS["target_orp"]])
-        self.current_clppm = float(info["vars"][API_SIGNS["current_clppm"]])
-        self.target_clppm = float(info["vars"][API_SIGNS["target_clppm"]])
+        try:
+            self.current_orp = float(info["vars"][API_SIGNS["current_orp"]])
+            self.target_orp = float(info["vars"][API_SIGNS["target_orp"]])
+        except ValueError:
+            pass
+        try:
+            self.current_clppm = float(info["vars"][API_SIGNS["current_clppm"]])
+            self.target_clppm = float(info["vars"][API_SIGNS["target_clppm"]])  
+        except ValueError:
+            pass
         self.percentage_electrolysis = int(info["vars"][API_SIGNS["percentage_electrolysis"]])
         self.target_percentage_electrolysis = int(info["vars"][API_SIGNS["target_percentage_electrolysis"]])
         if len(self.relays) == 0:
