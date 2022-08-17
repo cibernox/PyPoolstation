@@ -103,10 +103,15 @@ class Pool:
         self.logger.debug(f"Updating pool info for pool with id {self.id}")
         info = await self.post(POOL_INFO_URL + str(self.id))
         self.alias = info["alias"]
-        self.temperature = float(info["vars"][API_SIGNS["temperature"]][0:-1])  # in °C
-        self.salt_concentration = float(info["vars"][API_SIGNS["salt_concentration"]][0:-1])  # in gr/l
-        self.current_ph = float(info["vars"][API_SIGNS["current_ph"]])
-        self.target_ph = float(info["vars"][API_SIGNS["target_ph"]])
+        try:
+            # I don't know why these values would be missing since all devices have these sensors
+            # but people have reported that sometimes they are, so let's wrap them in try/except.
+            self.temperature = float(info["vars"][API_SIGNS["temperature"]][0:-1])  # in °C
+            self.salt_concentration = float(info["vars"][API_SIGNS["salt_concentration"]][0:-1])  # in gr/l
+            self.current_ph = float(info["vars"][API_SIGNS["current_ph"]])
+            self.target_ph = float(info["vars"][API_SIGNS["target_ph"]])
+        except ValueError:
+            pass
         try:
             self.current_orp = float(info["vars"][API_SIGNS["current_orp"]])
             self.target_orp = float(info["vars"][API_SIGNS["target_orp"]])
