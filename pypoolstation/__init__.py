@@ -20,7 +20,16 @@ API_SIGNS = {
     "current_clppm": "mh",
     "target_clppm": "sh",
     "percentage_electrolysis": "pa",
-    "target_percentage_electrolysis": "sn"
+    "target_percentage_electrolysis": "sn",
+    "binary_input_1": "d1",
+    "binary_input_2": "d2",
+    "binary_input_3": "d3",
+    "binary_input_4": "d4",
+    "binary_input_1_name": "d1_name",
+    "binary_input_2_name": "d2_name",
+    "binary_input_3_name": "d3_name",
+    "binary_input_4_name": "d4_name",
+    "waterflow": "ac"
 }
 
 class Account:
@@ -83,6 +92,15 @@ class Pool:
         self.percentage_electrolysis = None
         self.target_percentage_electrolysis = None
         self.relays = []
+        self.binary_input_1 = None
+        self.binary_input_1_name = None
+        self.binary_input_2 = None
+        self.binary_input_2_name = None
+        self.binary_input_3 = None
+        self.binary_input_3_name = None
+        self.binary_input_4 = None
+        self.binary_input_4_name = None
+        self.waterflow_sensor = None
         self.logger = logger
 
     async def post(self, url, data=""):
@@ -110,6 +128,15 @@ class Pool:
             self.salt_concentration = float(info["vars"][API_SIGNS["salt_concentration"]][0:-1])  # in gr/l
             self.current_ph = float(info["vars"][API_SIGNS["current_ph"]])
             self.target_ph = float(info["vars"][API_SIGNS["target_ph"]])
+            self.binary_input_1 = info["vars"][API_SIGNS["binary_input_1"]] == "1"
+            self.binary_input_2 = info["vars"][API_SIGNS["binary_input_2"]] == "1"
+            self.binary_input_3 = info["vars"][API_SIGNS["binary_input_3"]] == "1"
+            self.binary_input_4 = info["vars"][API_SIGNS["binary_input_4"]] == "1"
+            self.waterflow = info["vars"][API_SIGNS["waterflow"]] == "1"
+            self.binary_input_1_name = info[API_SIGNS["binary_input_1_name"]]
+            self.binary_input_2_name = info[API_SIGNS["binary_input_2_name"]]
+            self.binary_input_3_name = info[API_SIGNS["binary_input_3_name"]]
+            self.binary_input_4_name = info[API_SIGNS["binary_input_4_name"]]
         except ValueError:
             pass
         try:
