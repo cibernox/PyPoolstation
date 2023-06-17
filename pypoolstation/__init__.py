@@ -176,16 +176,16 @@ class Pool:
             return previous_value     
 
     async def set_target_ph(self, value): 
-        return self.set_target_attribute(self, "target_ph", value)
+        return await self.set_target_attribute("target_ph", value)
 
     async def set_target_orp(self, value): 
-        return self.set_target_attribute(self, "target_orp", value)
+        return await self.set_target_attribute("target_orp", value)
 
     async def set_target_clppm(self, value): 
-        return self.set_target_attribute(self, "target_clppm", value)
+        return await self.set_target_attribute("target_clppm", value)
 
     async def set_target_percentage_electrolysis(self, value): 
-        return self.set_target_attribute(self, "target_percentage_electrolysis", value)
+        return await self.set_target_attribute("target_percentage_electrolysis", value)
 
 class Relay:
     def __init__(self, id=None, pool=None, name="", sign="", active=False):
