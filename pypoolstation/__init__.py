@@ -1,9 +1,7 @@
 import json
 from aiohttp import ClientError, ClientResponseError
 import logging
-from importlib_metadata import version
 
-__version__ = version(__package__)
 DOMAIN = 'https://api.idegis.net'
 LOGIN_URL = DOMAIN + '/session/login'
 POOL_LIST_URL = DOMAIN + '/devices/10/0'
