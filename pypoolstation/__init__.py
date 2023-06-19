@@ -98,7 +98,7 @@ class Pool:
         self.binary_input_3_name = None
         self.binary_input_4 = None
         self.binary_input_4_name = None
-        self.waterflow_sensor = None
+        self.waterflow_problem = None
         self.logger = logger
 
     async def post(self, url, data=""):
@@ -130,7 +130,7 @@ class Pool:
             self.binary_input_2 = info["vars"][API_SIGNS["binary_input_2"]] == "1"
             self.binary_input_3 = info["vars"][API_SIGNS["binary_input_3"]] == "1"
             self.binary_input_4 = info["vars"][API_SIGNS["binary_input_4"]] == "1"
-            self.waterflow = info["vars"][API_SIGNS["waterflow"]] == "1"
+            self.waterflow_problem = info["vars"][API_SIGNS["waterflow"]] == "0"
             self.binary_input_1_name = info[API_SIGNS["binary_input_1_name"]]
             self.binary_input_2_name = info[API_SIGNS["binary_input_2_name"]]
             self.binary_input_3_name = info[API_SIGNS["binary_input_3_name"]]
