@@ -112,7 +112,10 @@ class Pool:
         except ClientResponseError as err:
             # Unfortunately, the API is aweful and making a request with an expired token seems to trigger a generic 500 error.
             # For all I could find, there's not way of
-            raise AuthenticationException("Request failed. Maybe token has expired.")
+            if err.status == 504:
+                raise
+            else:
+                raise AuthenticationException("Request failed. Maybe token has expired.")
         return await resp.json()
 
     async def sync_info(self):
