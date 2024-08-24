@@ -27,7 +27,12 @@ API_SIGNS = {
     "binary_input_2_name": "d2_name",
     "binary_input_3_name": "d3_name",
     "binary_input_4_name": "d4_name",
-    "waterflow": "ac"
+    "waterflow": "ac",
+    "uv": "lu",
+    "current_uv_timer": "hu",
+    "total_uv_timer": "xu",
+    "uv_ballast": "bu",
+    "uv_fuse": "fu",
 }
 
 class Account:
@@ -100,6 +105,11 @@ class Pool:
         self.binary_input_4_name = None
         self.waterflow_problem = None
         self.logger = logger
+        self.uv = None
+        self.current_uv_timer = None
+        seif.total_uv_timer = None
+        self.uv_ballast_problem = None
+        self.uv_fuse_problem = None
 
     async def post(self, url, data=""):
         try:
@@ -140,16 +150,28 @@ class Pool:
             self.binary_input_4_name = info[API_SIGNS["binary_input_4_name"]]
         except ValueError:
             pass
+            
         try:
             self.current_orp = float(info["vars"][API_SIGNS["current_orp"]])
             self.target_orp = float(info["vars"][API_SIGNS["target_orp"]])
         except ValueError:
             pass
+            
         try:
             self.current_clppm = float(info["vars"][API_SIGNS["current_clppm"]])
             self.target_clppm = float(info["vars"][API_SIGNS["target_clppm"]])  
         except ValueError:
             pass
+      
+        try:
+            self.uv = info["vars"][API_SIGNS["uv"]] == "0"
+            self.current_uv_timer = int(info["vars"][API_SIGNS["current_uv_timer"]])
+            self.total_uv_timer = int(info["vars"][API_SIGNS["total_uv_timer"]])
+            self.uv_ballast_problem = info["vars"][API_SIGNS["uv_ballast"]] == "0"
+            self.uv_fuse_problem = info["vars"][API_SIGNS["uv_fuse"]] == "0"
+        except ValueError:
+            pass
+
         self.percentage_electrolysis = int(info["vars"][API_SIGNS["percentage_electrolysis"]])
         self.target_percentage_electrolysis = int(info["vars"][API_SIGNS["target_percentage_electrolysis"]])
         if len(self.relays) == 0:
