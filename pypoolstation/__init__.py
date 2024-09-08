@@ -107,7 +107,7 @@ class Pool:
         self.logger = logger
         self.uv = None
         self.current_uv_timer = None
-        seif.total_uv_timer = None
+        self.total_uv_timer = None
         self.uv_ballast_problem = None
         self.uv_fuse_problem = None
 
