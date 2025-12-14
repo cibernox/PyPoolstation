@@ -132,3 +132,4 @@ cython_debug/
 
 api-discovery.md
 testing_snippets.py
+credentials.json

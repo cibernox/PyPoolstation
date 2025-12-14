@@ -33,7 +33,7 @@ API_SIGNS = {
     "binary_input_3_name": "d3_name",
     "binary_input_4_name": "d4_name",
     "waterflow": "ac",
-    "uv": "lu",
+    "uv_available": "lu",
     "current_uv_timer": "hu",
     "total_uv_timer": "xu",
     "uv_ballast": "bu",
@@ -46,7 +46,8 @@ class Account:
         self._username = username
         self._password = password
         self._token = token
-        self.logger = logger;
+        self.logger = logger
+
 
     async def token(self):
         if self._token: return self._token
@@ -111,7 +112,8 @@ class Pool:
                 resp.raise_for_status()
                 data = await resp.json()
                 account.logger.debug(f"Account pools retrieved successfully. Number of pools: {len(data['items'])}")
-                return list(map(lambda x: Pool(session, token, x['id'], account.logger), data["items"]))
+                return [Pool(session, token, item['id'], account.logger) for item in data["items"]]
+
         except ClientResponseError:
             raise AuthenticationException("Request failed. Maybe token has expired.")
 
@@ -141,7 +143,11 @@ class Pool:
         self.binary_input_4_name = None
         self.waterflow_problem = None
         self.logger = logger
-        self.uv = None
+        self.uv_available = None
+
+        self.uv_on = None
+        self.uv_enabled = None
+
         self.current_uv_timer = None
         self.total_uv_timer = None
         self.uv_ballast_problem = None
@@ -206,23 +212,40 @@ class Pool:
             pass
       
         try:
-            self.uv = info["vars"][API_SIGNS["uv"]] == "0"
+            self.uv_available = info["vars"][API_SIGNS["uv_available"]] != "-"
+
+            # New Logic based on 'bu' (uv_ballast). This probably only works for non-prioriatary UV
+            # lights to detect the light state.
+            bu_val = info["vars"].get(API_SIGNS["uv_ballast"])
+            if bu_val == "-":
+                self.uv_on = False
+                self.uv_enabled = False
+            elif bu_val == "1":
+                self.uv_on = True
+                self.uv_enabled = True
+            elif bu_val == "0":
+                self.uv_on = False
+                self.uv_enabled = True
+            else:
+                self.uv_on = False
+                self.uv_enabled = False
+
             self.current_uv_timer = int(info["vars"][API_SIGNS["current_uv_timer"]])
             self.total_uv_timer = int(info["vars"][API_SIGNS["total_uv_timer"]])
-            self.uv_ballast_problem = info["vars"][API_SIGNS["uv_ballast"]] == "0"
-            self.uv_fuse_problem = info["vars"][API_SIGNS["uv_fuse"]] == "0"
+            self.uv_ballast_problem = info["vars"][API_SIGNS["uv_ballast"]] == "1"
+            self.uv_fuse_problem = info["vars"][API_SIGNS["uv_fuse"]] == "1"
         except ValueError:
             pass
+
 
         self.percentage_electrolysis = int(info["vars"][API_SIGNS["percentage_electrolysis"]])
         self.target_percentage_electrolysis = int(info["vars"][API_SIGNS["target_percentage_electrolysis"]])
         if len(self.relays) == 0:
-            self.relays = list(
-                map(
-                    (lambda r: Relay(id=r["id"], pool=self, name=r["nombre"], sign=r["sign"], active=info["vars"][r["sign"]] == '1')),
-                    info["relays"]
-                )
-            )
+            self.relays = [
+                Relay(id=r["id"], pool=self, name=r["nombre"], sign=r["sign"], active=info["vars"][r["sign"]] == '1')
+                for r in info["relays"]
+            ]
+
         else:
             for obj in info["relays"]:
                 relay = next((r for r in self.relays if r.id == obj["id"]), None)
@@ -231,13 +254,15 @@ class Pool:
 
     async def set_target_attribute(self, attr, value): 
         previous_value = getattr(self, attr)
-        setattr(self, attr, value);
+        setattr(self, attr, value)
+
         api_value = str(value)
         try:
             await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': API_SIGNS[attr], 'value': api_value})}")
             return value
         except ClientError as err:
-            setattr(self, attr, previous_value);
+            setattr(self, attr, previous_value)
+
             return previous_value     
 
     async def set_target_ph(self, value): 
