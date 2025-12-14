@@ -33,7 +33,7 @@ API_SIGNS = {
     "binary_input_3_name": "d3_name",
     "binary_input_4_name": "d4_name",
     "waterflow": "ac",
-    "uv": "lu",
+    "uv_available": "lu",
     "current_uv_timer": "hu",
     "total_uv_timer": "xu",
     "uv_ballast": "bu",
@@ -143,7 +143,11 @@ class Pool:
         self.binary_input_4_name = None
         self.waterflow_problem = None
         self.logger = logger
-        self.uv = None
+        self.uv_available = None
+
+        self.uv_on = None
+        self.uv_enabled = None
+
         self.current_uv_timer = None
         self.total_uv_timer = None
         self.uv_ballast_problem = None
@@ -208,13 +212,31 @@ class Pool:
             pass
       
         try:
-            self.uv = info["vars"][API_SIGNS["uv"]] == "0"
+            self.uv_available = info["vars"][API_SIGNS["uv_available"]] != "-"
+
+            # New Logic based on 'bu' (uv_ballast). This probably only works for non-prioriatary UV
+            # lights to detect the light state.
+            bu_val = info["vars"].get(API_SIGNS["uv_ballast"])
+            if bu_val == "-":
+                self.uv_on = False
+                self.uv_enabled = False
+            elif bu_val == "1":
+                self.uv_on = True
+                self.uv_enabled = True
+            elif bu_val == "0":
+                self.uv_on = False
+                self.uv_enabled = True
+            else:
+                self.uv_on = False
+                self.uv_enabled = False
+
             self.current_uv_timer = int(info["vars"][API_SIGNS["current_uv_timer"]])
             self.total_uv_timer = int(info["vars"][API_SIGNS["total_uv_timer"]])
-            self.uv_ballast_problem = info["vars"][API_SIGNS["uv_ballast"]] == "0"
-            self.uv_fuse_problem = info["vars"][API_SIGNS["uv_fuse"]] == "0"
+            self.uv_ballast_problem = info["vars"][API_SIGNS["uv_ballast"]] == "1"
+            self.uv_fuse_problem = info["vars"][API_SIGNS["uv_fuse"]] == "1"
         except ValueError:
             pass
+
 
         self.percentage_electrolysis = int(info["vars"][API_SIGNS["percentage_electrolysis"]])
         self.target_percentage_electrolysis = int(info["vars"][API_SIGNS["target_percentage_electrolysis"]])
