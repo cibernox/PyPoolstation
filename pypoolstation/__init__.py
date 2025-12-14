@@ -46,7 +46,8 @@ class Account:
         self._username = username
         self._password = password
         self._token = token
-        self.logger = logger;
+        self.logger = logger
+
 
     async def token(self):
         if self._token: return self._token
@@ -111,7 +112,8 @@ class Pool:
                 resp.raise_for_status()
                 data = await resp.json()
                 account.logger.debug(f"Account pools retrieved successfully. Number of pools: {len(data['items'])}")
-                return list(map(lambda x: Pool(session, token, x['id'], account.logger), data["items"]))
+                return [Pool(session, token, item['id'], account.logger) for item in data["items"]]
+
         except ClientResponseError:
             raise AuthenticationException("Request failed. Maybe token has expired.")
 
@@ -217,12 +219,11 @@ class Pool:
         self.percentage_electrolysis = int(info["vars"][API_SIGNS["percentage_electrolysis"]])
         self.target_percentage_electrolysis = int(info["vars"][API_SIGNS["target_percentage_electrolysis"]])
         if len(self.relays) == 0:
-            self.relays = list(
-                map(
-                    (lambda r: Relay(id=r["id"], pool=self, name=r["nombre"], sign=r["sign"], active=info["vars"][r["sign"]] == '1')),
-                    info["relays"]
-                )
-            )
+            self.relays = [
+                Relay(id=r["id"], pool=self, name=r["nombre"], sign=r["sign"], active=info["vars"][r["sign"]] == '1')
+                for r in info["relays"]
+            ]
+
         else:
             for obj in info["relays"]:
                 relay = next((r for r in self.relays if r.id == obj["id"]), None)
@@ -231,13 +232,15 @@ class Pool:
 
     async def set_target_attribute(self, attr, value): 
         previous_value = getattr(self, attr)
-        setattr(self, attr, value);
+        setattr(self, attr, value)
+
         api_value = str(value)
         try:
             await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': API_SIGNS[attr], 'value': api_value})}")
             return value
         except ClientError as err:
-            setattr(self, attr, previous_value);
+            setattr(self, attr, previous_value)
+
             return previous_value     
 
     async def set_target_ph(self, value): 
