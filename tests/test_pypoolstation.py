@@ -100,7 +100,7 @@ class TestPyPoolstation(unittest.IsolatedAsyncioTestCase):
         self.session.post.return_value = MockResponse(200, mock_info)
         
         pool = Pool(self.session, "dummy_token", 123, logging.getLogger())
-        with patch.object(Account, 'get_auth_headers', return_value=("a","b")):
+        with patch('pypoolstation.get_auth_headers', return_value=("a", "b")):
             await pool.sync_info()
             self.assertEqual(pool.temperature, 25.0)
             self.assertEqual(pool.salt_concentration, 3.5)
@@ -123,7 +123,7 @@ class TestPyPoolstation(unittest.IsolatedAsyncioTestCase):
             "d1_name": "", "d2_name": "", "d3_name": "", "d4_name": ""
         })
         pool = Pool(self.session, "dummy_token", 123, logging.getLogger())
-        with patch.object(Account, 'get_auth_headers', return_value=("a","b")):
+        with patch('pypoolstation.get_auth_headers', return_value=("a", "b")):
             await pool.sync_info()
             self.assertEqual(pool.target_ph, 7.0)
 
@@ -133,16 +133,145 @@ class TestPyPoolstation(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(res, 7.5)
             self.assertEqual(pool.target_ph, 7.5)
 
-            # Test failed update
+            # Test failed update: server errors propagate and roll back state
             self.session.post.return_value = MockResponse(500, {})
-            
-            # Pool.post catches ClientResponseError and raises AuthenticationException
+            with self.assertRaises(aiohttp.ClientResponseError):
+                await pool.set_target_ph(8.0)
+            self.assertEqual(pool.target_ph, 7.5, "state must be rolled back on failure")
+
+            # Test failed update: auth errors propagate and roll back state
+            self.session.post.return_value = MockResponse(401, {})
             with self.assertRaises(AuthenticationException):
                 await pool.set_target_ph(8.0)
-                
-            # The attribute itself might not be restored to previous_value due to 
-            # the buggy exception handling in set_target_attribute, but we just verify
-            # it throws properly here.
+            self.assertEqual(pool.target_ph, 7.5, "state must be rolled back on failure")
+
+            # Test failed update: network errors propagate (no silent swallow)
+            self.session.post.side_effect = aiohttp.ClientError("simulated network error")
+            with self.assertRaises(aiohttp.ClientError):
+                await pool.set_target_orp(750)
+            self.assertEqual(pool.target_orp, 700, "state must be rolled back on failure")
+
+    async def test_relay_set_active(self):
+        self.session.post.return_value = MockResponse(200, {
+            "alias": "My Pool",
+            "vars": {"ta": "25.0 ", "mp": "7.2", "r1": "0"},
+            "relays": [{"id": 1, "nombre": "Pump", "sign": "r1"}],
+        })
+        pool = Pool(self.session, "dummy_token", 123, logging.getLogger())
+        with patch('pypoolstation.get_auth_headers', return_value=("a", "b")):
+            await pool.sync_info()
+            relay = pool.relays[0]
+            self.assertFalse(relay.active)
+
+            # Success
+            self.session.post.return_value = MockResponse(200, {"success": True})
+            result = await relay.set_active(True)
+            self.assertTrue(result)
+            self.assertTrue(relay.active)
+
+            # Failure rolls back and raises
+            self.session.post.return_value = MockResponse(500, {})
+            with self.assertRaises(aiohttp.ClientResponseError):
+                await relay.set_active(False)
+            self.assertTrue(relay.active, "relay state must be rolled back on failure")
+
+    async def test_sync_info_missing_vars(self):
+        # Sparse payload: most sensors missing. Must not raise.
+        self.session.post.return_value = MockResponse(200, {
+            "alias": "My Pool",
+            "vars": {"ta": "25.0 ", "mp": "7.2"},
+            "relays": [],
+        })
+        pool = Pool(self.session, "dummy_token", 123, logging.getLogger())
+        with patch('pypoolstation.get_auth_headers', return_value=("a", "b")):
+            await pool.sync_info()
+            self.assertEqual(pool.alias, "My Pool")
+            self.assertEqual(pool.temperature, 25.0)
+            self.assertEqual(pool.current_ph, 7.2)
+            self.assertIsNone(pool.salt_concentration)
+            self.assertIsNone(pool.target_ph)
+            self.assertIsNone(pool.current_orp)
+            self.assertIsNone(pool.current_clppm)
+            self.assertIsNone(pool.percentage_electrolysis)
+            self.assertIsNone(pool.target_percentage_electrolysis)
+            self.assertIsNone(pool.uv_available)
+            self.assertIsNone(pool.binary_input_1_name)
+            self.assertFalse(pool.waterflow_problem)
+            self.assertEqual(pool.relays, [])
+
+    async def test_sync_info_malformed_values(self):
+        # Garbage values: parsing must yield None, not raise.
+        self.session.post.return_value = MockResponse(200, {
+            "alias": "My Pool",
+            "vars": {
+                "ta": "N/A", "cn": "-", "mp": "", "sp": "abc",
+                "lu": "1", "bu": "0", "hu": "x", "xu": "y", "fu": "1",
+                "pa": "?", "sn": "?",
+            },
+            "relays": [],
+        })
+        pool = Pool(self.session, "dummy_token", 123, logging.getLogger())
+        with patch('pypoolstation.get_auth_headers', return_value=("a", "b")):
+            await pool.sync_info()
+            self.assertIsNone(pool.temperature)
+            self.assertIsNone(pool.current_ph)
+            self.assertIsNone(pool.target_ph)
+            self.assertIsNone(pool.current_uv_timer)
+            self.assertIsNone(pool.total_uv_timer)
+            self.assertIsNone(pool.percentage_electrolysis)
+            self.assertTrue(pool.uv_available)
+            self.assertTrue(pool.uv_fuse_problem)
+
+    async def test_sync_info_uv_states(self):
+        cases = [
+            # (bu, uv_on, uv_enabled, uv_ballast_problem)
+            ("-", False, False, False),
+            ("1", True, True, False),
+            ("0", False, True, False),
+            ("e1", False, False, True),  # unexpected error code
+        ]
+        for bu, expected_on, expected_enabled, expected_ballast in cases:
+            self.session.post.return_value = MockResponse(200, {
+                "alias": "My Pool",
+                "vars": {"lu": "1", "bu": bu, "hu": "10", "xu": "20", "fu": "0"},
+                "relays": [],
+            })
+            pool = Pool(self.session, "dummy_token", 123, logging.getLogger())
+            with patch('pypoolstation.get_auth_headers', return_value=("a", "b")):
+                await pool.sync_info()
+                self.assertEqual(pool.uv_on, expected_on, f"bu={bu!r}")
+                self.assertEqual(pool.uv_enabled, expected_enabled, f"bu={bu!r}")
+                self.assertEqual(pool.uv_ballast_problem, expected_ballast, f"bu={bu!r}")
+
+    async def test_sync_info_relay_updates(self):
+        base = {
+            "alias": "My Pool",
+            "relays": [{"id": 1, "nombre": "Pump", "sign": "r1"}],
+        }
+        self.session.post.return_value = MockResponse(200, {
+            **base, "vars": {"r1": "1"},
+        })
+        pool = Pool(self.session, "dummy_token", 123, logging.getLogger())
+        with patch('pypoolstation.get_auth_headers', return_value=("a", "b")):
+            await pool.sync_info()
+            self.assertEqual(len(pool.relays), 1)
+            self.assertTrue(pool.relays[0].active)
+
+            # Second sync: relay 1 state changed, relay 2 appeared.
+            self.session.post.return_value = MockResponse(200, {
+                "alias": "My Pool",
+                "vars": {"r1": "0", "r2": "1"},
+                "relays": [
+                    {"id": 1, "nombre": "Pump", "sign": "r1"},
+                    {"id": 2, "nombre": "Light", "sign": "r2"},
+                ],
+            })
+            await pool.sync_info()
+            self.assertEqual(len(pool.relays), 2, "new relays must be added on resync")
+            self.assertFalse(pool.relays[0].active, "relay state must be refreshed")
+            self.assertEqual(pool.relays[0].name, "Pump")
+            self.assertTrue(pool.relays[1].active)
+            self.assertEqual(pool.relays[1].name, "Light")
 
 if __name__ == '__main__':
     unittest.main()

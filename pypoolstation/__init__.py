@@ -1,4 +1,5 @@
 import json
+import aiohttp
 from aiohttp import ClientError, ClientResponseError
 import logging
 from datetime import datetime
@@ -12,6 +13,12 @@ LOGIN_URL = DOMAIN + '/session/login'
 POOL_LIST_URL = DOMAIN + '/devices/10/0'
 POOL_INFO_URL = DOMAIN + '/devices/'
 UPDATE_URL = DOMAIN + '/devices/saveSign'
+
+# Default timeout applied to every HTTP request made by this library.
+DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=30)
+
+# HTTP statuses treated as "invalid/expired token, re-login required".
+AUTH_ERROR_STATUSES = (401, 403, 410)
 
 API_SIGNS = {
     "temperature": "ta",
@@ -62,7 +69,7 @@ class Account:
             "remember": True, 
             "connectdate": current_date,
             "login_code": login_code
-        }) as resp:
+        }, timeout=DEFAULT_TIMEOUT) as resp:
             if resp.status == 410:
                 data = await resp.json()
                 if data.get("error_code") == "REQUEST_LOGIN_CODE":
@@ -110,7 +117,8 @@ class Pool:
                         "content-type": "application/x-www-form-urlencoded",
                         "Authorization": f"Bearer {encoded_token}",
                         "Q": md5_hash
-                    }
+                    },
+                    timeout=DEFAULT_TIMEOUT
             ) as resp:
                 account.logger.debug(f"Response status: {resp.status}")
                 if resp.status != 200:
@@ -168,117 +176,140 @@ class Pool:
         self._token = token
 
     async def post(self, url, data=""):
-        try:
-            # Create a new Account instance with the token
-            account = Account(self._session, token=self._token)
-            encoded_token, md5_hash = account.get_auth_headers()
-            resp = await self._session.post(
-                url,
-                data=data,
-                headers={
-                    "accept": "application/json", 
-                    "content-type": "application/x-www-form-urlencoded",
-                    "Authorization": f"Bearer {encoded_token}",
-                    "Q": md5_hash
-                }
-            )
-            resp.raise_for_status()
-        except ClientResponseError as err:
-            if err.status == 504:
+        encoded_token, md5_hash = get_auth_headers(self._token)
+        async with self._session.post(
+            url,
+            data=data,
+            headers={
+                "accept": "application/json", 
+                "content-type": "application/x-www-form-urlencoded",
+                "Authorization": f"Bearer {encoded_token}",
+                "Q": md5_hash
+            },
+            timeout=DEFAULT_TIMEOUT
+        ) as resp:
+            try:
+                resp.raise_for_status()
+            except ClientResponseError as err:
+                if err.status in AUTH_ERROR_STATUSES:
+                    raise AuthenticationException("Request failed. Maybe token has expired.") from err
+                # Let any other HTTP error (500, 504, ...) surface as-is so
+                # callers can distinguish server errors from auth failures.
                 raise
-            else:
-                raise AuthenticationException("Request failed. Maybe token has expired.")
-        return await resp.json()
+            return await resp.json()
 
     async def sync_info(self):
         self.logger.debug(f"Updating pool info for pool with id {self.id}")
         info = await self.post(POOL_INFO_URL + str(self.id))
-        self.alias = info["alias"]
-        self.raw_vars = info["vars"]
-        try:
-            # I don't know why these values would be missing since all devices have these sensors
-            # but people have reported that sometimes they are, so let's wrap them in try/except.
-            self.temperature = float(info["vars"][API_SIGNS["temperature"]][0:-1])  # in °C
-            self.salt_concentration = float(info["vars"][API_SIGNS["salt_concentration"]][0:-1])  # in gr/l
-            self.current_ph = float(info["vars"][API_SIGNS["current_ph"]])
-            self.target_ph = float(info["vars"][API_SIGNS["target_ph"]])
-            self.binary_input_1 = info["vars"][API_SIGNS["binary_input_1"]] == "1"
-            self.binary_input_2 = info["vars"][API_SIGNS["binary_input_2"]] == "1"
-            self.binary_input_3 = info["vars"][API_SIGNS["binary_input_3"]] == "1"
-            self.binary_input_4 = info["vars"][API_SIGNS["binary_input_4"]] == "1"
-            self.waterflow_problem = info["vars"][API_SIGNS["waterflow"]] == "0"
-            self.binary_input_1_name = info[API_SIGNS["binary_input_1_name"]]
-            self.binary_input_2_name = info[API_SIGNS["binary_input_2_name"]]
-            self.binary_input_3_name = info[API_SIGNS["binary_input_3_name"]]
-            self.binary_input_4_name = info[API_SIGNS["binary_input_4_name"]]
-        except ValueError:
-            pass
-            
-        try:
-            self.current_orp = float(info["vars"][API_SIGNS["current_orp"]])
-            self.target_orp = float(info["vars"][API_SIGNS["target_orp"]])
-        except ValueError:
-            pass
-            
-        try:
-            self.current_clppm = float(info["vars"][API_SIGNS["current_clppm"]])
-            self.target_clppm = float(info["vars"][API_SIGNS["target_clppm"]])  
-        except ValueError:
-            pass
-      
-        try:
-            self.uv_available = info["vars"][API_SIGNS["uv_available"]] != "-"
+        self.alias = info.get("alias")
+        self.raw_vars = info.get("vars") or {}
+        v = self.raw_vars
 
-            # New Logic based on 'bu' (uv_ballast). This probably only works for non-prioriatary UV
-            # lights to detect the light state.
-            bu_val = info["vars"].get(API_SIGNS["uv_ballast"])
-            if bu_val == "-":
-                self.uv_on = False
-                self.uv_enabled = False
-            elif bu_val == "1":
+        def to_float(sign, strip_trailing_char=False):
+            """Parse a numeric var, returning None if missing or malformed."""
+            raw = v.get(sign)
+            if raw is None:
+                return None
+            if strip_trailing_char and raw:
+                # Some values arrive padded with a trailing space/unit char.
+                raw = raw[:-1]
+            try:
+                return float(raw)
+            except (ValueError, TypeError):
+                return None
+
+        def to_int(sign):
+            raw = v.get(sign)
+            try:
+                return int(raw)
+            except (ValueError, TypeError):
+                return None
+
+        # Individual sensors are parsed independently so a single missing or
+        # malformed value never breaks the whole sync (people have reported
+        # values being missing from time to time).
+        self.temperature = to_float(API_SIGNS["temperature"], strip_trailing_char=True)  # in °C
+        self.salt_concentration = to_float(API_SIGNS["salt_concentration"], strip_trailing_char=True)  # in gr/l
+        self.current_ph = to_float(API_SIGNS["current_ph"])
+        self.target_ph = to_float(API_SIGNS["target_ph"])
+        self.current_orp = to_float(API_SIGNS["current_orp"])
+        self.target_orp = to_float(API_SIGNS["target_orp"])
+        self.current_clppm = to_float(API_SIGNS["current_clppm"])
+        self.target_clppm = to_float(API_SIGNS["target_clppm"])
+
+        self.binary_input_1 = v.get(API_SIGNS["binary_input_1"]) == "1"
+        self.binary_input_2 = v.get(API_SIGNS["binary_input_2"]) == "1"
+        self.binary_input_3 = v.get(API_SIGNS["binary_input_3"]) == "1"
+        self.binary_input_4 = v.get(API_SIGNS["binary_input_4"]) == "1"
+        self.waterflow_problem = v.get(API_SIGNS["waterflow"]) == "0"
+
+        self.binary_input_1_name = info.get(API_SIGNS["binary_input_1_name"])
+        self.binary_input_2_name = info.get(API_SIGNS["binary_input_2_name"])
+        self.binary_input_3_name = info.get(API_SIGNS["binary_input_3_name"])
+        self.binary_input_4_name = info.get(API_SIGNS["binary_input_4_name"])
+
+        self.percentage_electrolysis = to_int(API_SIGNS["percentage_electrolysis"])
+        self.target_percentage_electrolysis = to_int(API_SIGNS["target_percentage_electrolysis"])
+
+        lu_val = v.get(API_SIGNS["uv_available"])
+        if lu_val is not None:
+            self.uv_available = lu_val != "-"
+
+            # State machine based on 'bu' (uv_ballast). This probably only works
+            # for non-prioritary UV lights to detect the light state.
+            bu_val = v.get(API_SIGNS["uv_ballast"])
+            if bu_val == "1":
                 self.uv_on = True
                 self.uv_enabled = True
+                self.uv_ballast_problem = False
             elif bu_val == "0":
                 self.uv_on = False
                 self.uv_enabled = True
-            else:
+                self.uv_ballast_problem = False
+            elif bu_val == "-":
                 self.uv_on = False
                 self.uv_enabled = False
+                self.uv_ballast_problem = False
+            else:
+                # Absent, or an unexpected error code: not on, not usable.
+                self.uv_on = False
+                self.uv_enabled = False
+                self.uv_ballast_problem = bu_val is not None
 
-            self.current_uv_timer = int(info["vars"][API_SIGNS["current_uv_timer"]])
-            self.total_uv_timer = int(info["vars"][API_SIGNS["total_uv_timer"]])
-            self.uv_ballast_problem = info["vars"][API_SIGNS["uv_ballast"]] == "1"
-            self.uv_fuse_problem = info["vars"][API_SIGNS["uv_fuse"]] == "1"
-        except ValueError:
-            pass
+            self.current_uv_timer = to_int(API_SIGNS["current_uv_timer"])
+            self.total_uv_timer = to_int(API_SIGNS["total_uv_timer"])
+            self.uv_fuse_problem = v.get(API_SIGNS["uv_fuse"]) == "1"
 
-
-        self.percentage_electrolysis = int(info["vars"][API_SIGNS["percentage_electrolysis"]])
-        self.target_percentage_electrolysis = int(info["vars"][API_SIGNS["target_percentage_electrolysis"]])
         if len(self.relays) == 0:
             self.relays = [
-                Relay(id=r["id"], pool=self, name=r["nombre"], sign=r["sign"], active=info["vars"][r["sign"]] == '1')
-                for r in info["relays"]
+                Relay(id=r["id"], pool=self, name=r["nombre"], sign=r["sign"], active=v.get(r["sign"]) == '1')
+                for r in info.get("relays", [])
             ]
 
         else:
-            for obj in info["relays"]:
-                relay = next((r for r in self.relays if r.id == obj["id"]), None)
-                relay.name = obj["nombre"]
-                relay.active = info["vars"][obj["sign"]] == '1'
+            relays_by_id = {r.id: r for r in self.relays}
+            for obj in info.get("relays", []):
+                relay = relays_by_id.get(obj["id"])
+                if relay is None:
+                    # New relay appeared since the first sync.
+                    relay = Relay(id=obj["id"], pool=self, name=obj["nombre"], sign=obj["sign"], active=v.get(obj["sign"]) == '1')
+                    self.relays.append(relay)
+                else:
+                    relay.name = obj["nombre"]
+                    relay.active = v.get(obj["sign"]) == '1'
 
     async def set_target_attribute(self, attr, value): 
         previous_value = getattr(self, attr)
         setattr(self, attr, value)
 
-        api_value = str(value)
         try:
-            await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': API_SIGNS[attr], 'value': api_value})}")
-            return value
-        except ClientError as err:
+            await self.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.id, 'sign': API_SIGNS[attr], 'value': str(value)})}")
+        except Exception:
+            # Roll back local state so it never diverges from the device, and
+            # re-raise so callers can actually detect the failure.
             setattr(self, attr, previous_value)
-
-            return previous_value     
+            raise
+        return value
 
     async def set_target_ph(self, value): 
         return await self.set_target_attribute("target_ph", value)
@@ -305,10 +336,12 @@ class Relay:
         self.active = active
         try:
             await self.pool.post(UPDATE_URL, data=f"&data={json.dumps({'id': self.pool.id, 'sign': self.sign, 'value': '1' if active else '0'})}")
-            return active
-        except ClientError as err:
-            self.active = previous_value 
-            return previous_value   
+        except Exception:
+            # Roll back local state so it never diverges from the device, and
+            # re-raise so callers can actually detect the failure.
+            self.active = previous_value
+            raise
+        return active
 
 class AuthenticationException(Exception):
     pass

@@ -1,6 +1,6 @@
 [project]
 name = "pypoolstation"
-version = "0.7.1"
+version = "0.8.0"
 description = "Python library to interact with the API of the Poolstation (https://poolstation.net) domotic platform for pool equipment"
 authors = [{ name = "cibernox", email = "miguel.camba@gmail.com" }]
 license = "MIT"
